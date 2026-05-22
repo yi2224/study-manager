@@ -1,0 +1,393 @@
+{% extends 'base.html' %}
+
+{% block title %}番茄钟 - 学习任务管理系统{% endblock %}
+
+{% block extra_css %}
+<style>
+    .pomodoro-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 60vh;
+    }
+
+    .timer-display {
+        font-size: 5rem;
+        font-weight: bold;
+        color: #667eea;
+        font-family: 'Courier New', monospace;
+        margin: 2rem 0;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .timer-label {
+        font-size: 1.5rem;
+        color: #6c757d;
+        margin-bottom: 2rem;
+        font-weight: 600;
+    }
+
+    .control-buttons {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .control-buttons .btn {
+        font-size: 1.1rem;
+        padding: 0.8rem 2rem;
+        border-radius: 8px;
+        font-weight: 600;
+    }
+
+    .completion-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .completion-modal.active {
+        display: flex;
+    }
+
+    .completion-modal-content {
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .completion-modal-content i {
+        font-size: 4rem;
+        color: #28a745;
+        margin-bottom: 1rem;
+    }
+
+    .progress-info {
+        margin-top: 2rem;
+        padding: 1.5rem;
+        background-color: #f5f7fa;
+        border-radius: 8px;
+        text-align: left;
+    }
+
+    .info-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .info-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .info-item i {
+        margin-right: 1rem;
+        color: #667eea;
+        width: 30px;
+        text-align: center;
+    }
+
+    @keyframes pulse {
+        0%, 100% {
+            transform: scale(1);
+        }
+        50% {
+            transform: scale(1.05);
+        }
+    }
+
+    .timer-active .timer-display {
+        animation: pulse 1s infinite;
+    }
+
+    @media (max-width: 768px) {
+        .timer-display {
+            font-size: 3.5rem;
+        }
+
+        .control-buttons {
+            flex-wrap: wrap;
+        }
+
+        .control-buttons .btn {
+            flex: 1;
+            min-width: 100px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 offset-lg-2">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0 text-center">
+                    <i class="fas fa-hourglass-half"></i> 番茄钟计时器
+                </h5>
+            </div>
+
+            <div class="card-body pomodoro-container">
+                <!-- 计时器模式标签 -->
+                <div class="timer-label" id="modeLabel">学习时间</div>
+
+                <!-- 计时显示 -->
+                <div class="timer-display" id="timerDisplay">25:00</div>
+
+                <!-- 控制按钮 -->
+                <div class="control-buttons">
+                    <button class="btn btn-primary" id="startBtn" onclick="startTimer()">
+                        <i class="fas fa-play"></i> 开始
+                    </button>
+                    <button class="btn btn-warning" id="pauseBtn" onclick="pauseTimer()" disabled>
+                        <i class="fas fa-pause"></i> 暂停
+                    </button>
+                    <button class="btn btn-secondary" id="resetBtn" onclick="resetTimer()">
+                        <i class="fas fa-redo"></i> 重置
+                    </button>
+                </div>
+
+                <!-- 任务选择 -->
+                <div class="mt-4 w-100">
+                    <label for="taskSelect" class="form-label">关联任务（可选）</label>
+                    <select class="form-select" id="taskSelect">
+                        <option value="">-- 选择要绑定的学习任务 --</option>
+                        {% for task in tasks %}
+                        <option value="{{ task.id }}">{{ task.task_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-text text-muted d-block mt-2">
+                        选择一个任务，番茄钟完成后会自动记录学习时间到该任务
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- 使用说明 -->
+        <div class="card mt-4 bg-light border-0">
+            <div class="card-body">
+                <h6 class="card-title mb-3">
+                    <i class="fas fa-book"></i> 使用说明
+                </h6>
+                <div class="small">
+                    <p><strong>什么是番茄工作法？</strong></p>
+                    <p>番茄工作法是一种时间管理技巧，通过25分钟的工作时间加上5分钟的休息时间来提高工作效率。</p>
+
+                    <p class="mt-3"><strong>如何使用本计时器：</strong></p>
+                    <ol>
+                        <li>从学习任务下拉列表中选择你要学习的任务</li>
+                        <li>点击"开始"按钮，开始25分钟的学习时间</li>
+                        <li>专注于学习任务，直到计时器提醒你</li>
+                        <li>25分钟结束后，系统会自动提醒你休息5分钟</li>
+                        <li>休息时间结束后，你可以选择开始下一个番茄钟或重置计时器</li>
+                    </ol>
+
+                    <p class="mt-3"><strong>提示：</strong></p>
+                    <ul>
+                        <li>每次番茄钟完成后，学习时长会自动记录到选定的任务</li>
+                        <li>你可以随时暂停或重置计时器</li>
+                        <li>计时器完成时会显示完成提示，并可以生成学习记录</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 完成提示弹窗 -->
+<div class="completion-modal" id="completionModal">
+    <div class="completion-modal-content">
+        <i class="fas fa-check-circle"></i>
+        <h3 class="mb-3">太棒了！</h3>
+        <p class="text-muted mb-4" id="completionMessage"></p>
+
+        <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+            <button class="btn btn-secondary" onclick="closeModal()">
+                <i class="fas fa-redo"></i> 再来一次
+            </button>
+            <button class="btn btn-primary" onclick="saveAndClose()">
+                <i class="fas fa-save"></i> 保存记录
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 番茄钟逻辑脚本 -->
+<script>
+    // 计时器状态
+    let totalSeconds = 25 * 60;  // 25分钟
+    let remainingSeconds = totalSeconds;
+    let isRunning = false;
+    let isPomodoroMode = true;  // true为学习时间，false为休息时间
+    let timerInterval = null;
+    const POMODORO_DURATION = 25 * 60;  // 25分钟
+    const BREAK_DURATION = 5 * 60;  // 5分钟
+
+    // 更新计时器显示
+    function updateDisplay() {
+        const minutes = Math.floor(remainingSeconds / 60);
+        const seconds = remainingSeconds % 60;
+        document.getElementById('timerDisplay').textContent =
+            `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    // 开始计时
+    function startTimer() {
+        if (isRunning) return;
+
+        isRunning = true;
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('pauseBtn').disabled = false;
+        document.querySelector('.pomodoro-container').classList.add('timer-active');
+
+        timerInterval = setInterval(() => {
+            remainingSeconds--;
+
+            if (remainingSeconds < 0) {
+                completePhase();
+                return;
+            }
+
+            updateDisplay();
+        }, 1000);
+    }
+
+    // 暂停计时
+    function pauseTimer() {
+        isRunning = false;
+        clearInterval(timerInterval);
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('pauseBtn').disabled = true;
+        document.querySelector('.pomodoro-container').classList.remove('timer-active');
+    }
+
+    // 重置计时
+    function resetTimer() {
+        pauseTimer();
+        isPomodoroMode = true;
+        remainingSeconds = POMODORO_DURATION;
+        totalSeconds = POMODORO_DURATION;
+        document.getElementById('modeLabel').textContent = '学习时间';
+        document.getElementById('modeLabel').style.color = '#667eea';
+        updateDisplay();
+    }
+
+    // 完成一个阶段
+    function completePhase() {
+        clearInterval(timerInterval);
+        isRunning = false;
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('pauseBtn').disabled = true;
+        document.querySelector('.pomodoro-container').classList.remove('timer-active');
+
+        if (isPomodoroMode) {
+            // 学习时间完成，显示完成弹窗
+            document.getElementById('completionMessage').textContent = '你已完成一个25分钟的学习时间！现在是休息时间。';
+            document.getElementById('completionModal').classList.add('active');
+        } else {
+            // 休息时间完成
+            alert('休息时间结束，准备好开始下一个番茄钟吗？');
+            resetTimer();
+        }
+    }
+
+    // 关闭完成弹窗，开始休息时间
+    function closeModal() {
+        document.getElementById('completionModal').classList.remove('active');
+        // 切换到休息时间
+        isPomodoroMode = false;
+        remainingSeconds = BREAK_DURATION;
+        totalSeconds = BREAK_DURATION;
+        document.getElementById('modeLabel').textContent = '休息时间';
+        document.getElementById('modeLabel').style.color = '#28a745';
+        updateDisplay();
+        startTimer();
+    }
+
+    // 保存学习记录并关闭
+    function saveAndClose() {
+        const taskId = document.getElementById('taskSelect').value;
+
+        if (!taskId) {
+            alert('请先选择一个学习任务');
+            return;
+        }
+
+        // 发送AJAX请求保存学习记录
+        const data = {
+            task_id: taskId,
+            study_duration: 25  // 番茄钟标准时长25分钟
+        };
+
+        fetch('{% url "study:pomodoro_finish" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('学习记录已保存！');
+                document.getElementById('completionModal').classList.remove('active');
+                // 切换到休息时间
+                isPomodoroMode = false;
+                remainingSeconds = BREAK_DURATION;
+                totalSeconds = BREAK_DURATION;
+                document.getElementById('modeLabel').textContent = '休息时间';
+                document.getElementById('modeLabel').style.color = '#28a745';
+                updateDisplay();
+                startTimer();
+            } else {
+                alert('保存失败：' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('保存失败');
+        });
+    }
+
+    // 获取CSRF Cookie
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // 页面加载时初始化
+    document.addEventListener('DOMContentLoaded', function() {
+        updateDisplay();
+    });
+
+    // 浏览器标签页标题显示计时
+    setInterval(() => {
+        if (isRunning) {
+            const minutes = Math.floor(remainingSeconds / 60);
+            const seconds = remainingSeconds % 60;
+            document.title = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')} - 番茄钟`;
+        }
+    }, 1000);
+</script>
+{% endblock %}

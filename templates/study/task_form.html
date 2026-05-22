@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}{% if action == 'create' %}创建任务{% else %}编辑任务{% endif %} - 学习任务管理系统{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                {% if action == 'create' %}
+                <h5 class="mb-0"><i class="fas fa-plus-circle"></i> 创建新任务</h5>
+                {% else %}
+                <h5 class="mb-0"><i class="fas fa-edit"></i> 编辑任务</h5>
+                {% endif %}
+            </div>
+
+            <div class="card-body">
+                <form method="post" class="needs-validation">
+                    {% csrf_token %}
+
+                    <!-- 任务名称 -->
+                    <div class="mb-3">
+                        <label for="task_name" class="form-label">任务名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="task_name" name="task_name"
+                            placeholder="请输入任务名称" required
+                            value="{% if task %}{{ task.task_name }}{% endif %}">
+                        <small class="form-text text-muted">请输入一个清晰、简洁的任务名称</small>
+                    </div>
+
+                    <!-- 任务描述 -->
+                    <div class="mb-3">
+                        <label for="task_desc" class="form-label">任务描述</label>
+                        <textarea class="form-control" id="task_desc" name="task_desc" rows="4"
+                            placeholder="请输入任务的详细描述（可选）">{% if task %}{{ task.task_desc }}{% endif %}</textarea>
+                        <small class="form-text text-muted">详细描述你的学习任务，帮助你更好地理解任务的内容和目标</small>
+                    </div>
+
+                    <!-- 截止时间 -->
+                    <div class="mb-3">
+                        <label for="deadline" class="form-label">截止时间 <span class="text-danger">*</span></label>
+                        <input type="datetime-local" class="form-control" id="deadline" name="deadline"
+                            required
+                            value="{% if task %}{{ task.deadline|date:'Y-m-dTH:i' }}{% endif %}">
+                        <small class="form-text text-muted">设置一个合理的截止时间，系统将在任务即将过期时提醒你</small>
+                    </div>
+
+                    <!-- 操作按钮 -->
+                    <div class="d-grid gap-2 d-sm-flex justify-content-sm-end">
+                        <a href="{% url 'study:task_list' %}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> 取消
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            {% if action == 'create' %}
+                            <i class="fas fa-save"></i> 创建任务
+                            {% else %}
+                            <i class="fas fa-save"></i> 保存修改
+                            {% endif %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 帮助提示 -->
+        <div class="card mt-4 bg-light border-0">
+            <div class="card-body">
+                <h6 class="card-title mb-3">
+                    <i class="fas fa-lightbulb"></i> 小贴士
+                </h6>
+                <ul class="mb-0 small">
+                    <li>为任务起一个有意义的名称，便于后续管理和搜索</li>
+                    <li>在描述中详细说明学习任务的具体内容和学习目标</li>
+                    <li>合理设置截止时间，系统会自动在24小时内提醒你</li>
+                    <li>创建后可以在任务管理页面添加子任务，拆分学习过程</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 表单验证脚本 -->
+<script>
+    // Bootstrap表单验证
+    (function() {
+        'use strict';
+        window.addEventListener('load', function() {
+            const forms = document.querySelectorAll('.needs-validation');
+            Array.prototype.slice.call(forms).forEach(function(form) {
+                form.addEventListener('submit', function(event) {
+                    if (!form.checkValidity()) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                    }
+                    form.classList.add('was-validated');
+                }, false);
+            });
+        }, false);
+    })();
+
+    // 日期时间输入默认值设置为当前时间的24小时后
+    document.addEventListener('DOMContentLoaded', function() {
+        const deadlineInput = document.getElementById('deadline');
+        if (!deadlineInput.value) {
+            const now = new Date();
+            now.setHours(now.getHours() + 24);
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            deadlineInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+        }
+    });
+</script>
+{% endblock %}

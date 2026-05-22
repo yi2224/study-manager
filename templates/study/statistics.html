@@ -1,0 +1,316 @@
+{% extends 'base.html' %}
+
+{% block title %}数据统计 - 学习任务管理系统{% endblock %}
+
+{% block extra_css %}
+<style>
+    .chart-container {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        text-align: center;
+    }
+
+    .stat-card.alt-1 {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    .stat-card.alt-2 {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    }
+
+    .stat-card.alt-3 {
+        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    }
+
+    .stat-card h5 {
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+
+    .stat-card .stat-value {
+        font-size: 2.5rem;
+        font-weight: bold;
+    }
+
+    .stat-card .stat-unit {
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+
+    #dailyChart, #taskChart {
+        min-height: 400px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-12">
+        <h2 class="mb-4">
+            <i class="fas fa-chart-bar"></i> 学习数据统计
+        </h2>
+    </div>
+</div>
+
+<!-- 统计卡片 -->
+<div class="row">
+    <div class="col-md-6 col-lg-3">
+        <div class="stat-card">
+            <h5 class="mb-2">今日学习时长</h5>
+            <div class="stat-value">{{ today_duration }}</div>
+            <div class="stat-unit">分钟</div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3">
+        <div class="stat-card alt-1">
+            <h5 class="mb-2">今日学习任务数</h5>
+            <div class="stat-value">{{ today_tasks_count }}</div>
+            <div class="stat-unit">个</div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3">
+        <div class="stat-card alt-2">
+            <h5 class="mb-2">本周学习时长</h5>
+            <div class="stat-value">{{ week_duration }}</div>
+            <div class="stat-unit">分钟</div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3">
+        <div class="stat-card alt-3">
+            <h5 class="mb-2">总学习记录</h5>
+            <div class="stat-value">{{ total_study_records }}</div>
+            <div class="stat-unit">条</div>
+        </div>
+    </div>
+</div>
+
+<!-- 图表区域 -->
+<div class="row mt-4">
+    <!-- 日学习时长趋势图 -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line"></i> 最近14天学习时长趋势
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="dailyChart" class="chart-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 任务完成率饼图 -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-pie"></i> 任务完成率
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="taskChart" class="chart-container"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 任务学习时长排名 -->
+<div class="row mt-4">
+    <div class="col-lg-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-star"></i> 任务学习时长排名（Top 10）
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="taskRankChart" class="chart-container" style="min-height: 300px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ECharts库 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+
+<!-- 图表初始化脚本 -->
+<script>
+    // 日学习时长趋势图
+    const dailyChartDom = document.getElementById('dailyChart');
+    const dailyChart = echarts.init(dailyChartDom);
+
+    const dailyData = {{ daily_data|safe }};
+    const dailyDates = dailyData.map(item => item.date);
+    const dailyDurations = dailyData.map(item => item.duration);
+
+    const dailyOption = {
+        title: {
+            text: '',
+        },
+        tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+                if (params.length > 0) {
+                    return params[0].axisValue + '<br/>' + params[0].value + ' 分钟';
+                }
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: dailyDates,
+            boundaryGap: false,
+        },
+        yAxis: {
+            type: 'value',
+            name: '学习时长（分钟）',
+        },
+        series: [
+            {
+                data: dailyDurations,
+                type: 'line',
+                smooth: true,
+                areaStyle: {
+                    color: 'rgba(102, 126, 234, 0.3)'
+                },
+                lineStyle: {
+                    color: '#667eea',
+                    width: 2
+                },
+                symbolSize: 6,
+                itemStyle: {
+                    color: '#667eea'
+                }
+            }
+        ],
+        grid: {
+            left: '60px',
+            right: '40px',
+            top: '30px',
+            bottom: '40px',
+            containLabel: true
+        }
+    };
+
+    dailyChart.setOption(dailyOption);
+
+    // 任务完成率饼图
+    const taskChartDom = document.getElementById('taskChart');
+    const taskChart = echarts.init(taskChartDom);
+
+    const taskStatusData = {{ task_status_data|safe }};
+
+    const taskOption = {
+        tooltip: {
+            trigger: 'item',
+            formatter: function(params) {
+                return params.name + ': ' + params.value + '个';
+            }
+        },
+        series: [
+            {
+                name: '任务状态',
+                type: 'pie',
+                radius: ['30%', '70%'],
+                avoidLabelOverlap: false,
+                data: taskStatusData,
+                emphasis: {
+                    itemStyle: {
+                        shadowBlur: 10,
+                        shadowOffsetX: 0,
+                        shadowColor: 'rgba(0, 0, 0, 0.5)'
+                    }
+                },
+                label: {
+                    show: true,
+                    position: 'outside',
+                    formatter: '{b}: {c}个'
+                }
+            }
+        ],
+        color: ['#28a745', '#ffc107'],
+        grid: {
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0
+        }
+    };
+
+    taskChart.setOption(taskOption);
+
+    // 任务学习时长排名
+    const rankChartDom = document.getElementById('taskRankChart');
+    const rankChart = echarts.init(rankChartDom);
+
+    const taskStudyData = {{ task_study_data|safe }};
+    const taskNames = taskStudyData.map(item => item.task_name);
+    const taskDurations = taskStudyData.map(item => item.duration);
+
+    const rankOption = {
+        tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+                if (params.length > 0) {
+                    return params[0].name + '<br/>' + params[0].value + ' 分钟';
+                }
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: taskNames,
+            axisLabel: {
+                interval: 0,
+                rotate: 45
+            }
+        },
+        yAxis: {
+            type: 'value',
+            name: '学习时长（分钟）'
+        },
+        series: [
+            {
+                data: taskDurations,
+                type: 'bar',
+                itemStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: '#667eea' },
+                        { offset: 1, color: '#764ba2' }
+                    ])
+                }
+            }
+        ],
+        grid: {
+            left: '60px',
+            right: '40px',
+            top: '30px',
+            bottom: '80px',
+            containLabel: true
+        }
+    };
+
+    rankChart.setOption(rankOption);
+
+    // 窗口响应式调整
+    window.addEventListener('resize', function() {
+        dailyChart.resize();
+        taskChart.resize();
+        rankChart.resize();
+    });
+</script>
+
+{% endblock %}
