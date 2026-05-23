@@ -77,7 +77,7 @@ class StudyRecord(models.Model):
     """学习记录模型
     记录每次番茄钟学习的开始时间、结束时间、学习时长
     """
-    task = models.ForeignKey(MainTask, on_delete=models.CASCADE, verbose_name="关联任务", related_name='study_records')
+    task = models.ForeignKey(MainTask, on_delete=models.CASCADE, verbose_name="关联任务", related_name='study_records', null=True, blank=True)
     study_start = models.DateTimeField(auto_now_add=True, verbose_name="学习开始时间")
     study_end = models.DateTimeField(verbose_name="学习结束时间")
     study_duration = models.IntegerField(verbose_name="学习时长（分钟）", help_text="本次学习的时长")
@@ -88,4 +88,5 @@ class StudyRecord(models.Model):
         ordering = ['-study_start']
 
     def __str__(self):
-        return f"{self.task.task_name} - {self.study_duration}分钟"
+        task_name = self.task.task_name if self.task else '自由学习'
+        return f"{task_name} - {self.study_duration}分钟"

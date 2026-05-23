@@ -156,6 +156,7 @@ def subtask_create(request):
             'subtask_id': subtask.id,
             'sub_name': subtask.sub_name,
             'is_finish': subtask.is_finish,
+            'progress': main_task.progress,
         })
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
@@ -222,26 +223,29 @@ def pomodoro(request):
 
 @require_http_methods(["POST"])
 def pomodoro_finish(request):
-    """番茄钟完成后保存学习记录（AJAX）"""
+    """番茄钟完成后保存学习记录（AJAX）
+    支持两种模式：
+    1. 关联到具体任务：传入 task_id
+    2. 自由学习模式：不传 task_id 或传空值，记录为无任务关联的学习时长
+    """
     try:
         data = json.loads(request.body)
         task_id = data.get('task_id')
         study_duration = data.get('study_duration', 25)  # 默认25分钟
 
-        if not task_id:
-            return JsonResponse({'success': False, 'error': '任务ID不能为空'})
-
-        main_task = get_object_or_404(MainTask, id=task_id)
+        main_task = None
+        if task_id:
+            main_task = get_object_or_404(MainTask, id=task_id)
 
         # 创建学习记录
         study_end = timezone.now()
-        study_start = study_end - timedelta(minutes=study_duration)
+        study_start = study_end - timedelta(minutes=int(study_duration))
 
         StudyRecord.objects.create(
             task=main_task,
             study_start=study_start,
             study_end=study_end,
-            study_duration=study_duration
+            study_duration=int(study_duration)
         )
 
         return JsonResponse({
@@ -306,6 +310,11 @@ def statistics(request):
     # 按时长排序
     task_study_data.sort(key=lambda x: x['duration'], reverse=True)
 
+    # 统计无任务关联的自由学习记录
+    untracked_duration = StudyRecord.objects.filter(task__isnull=True).aggregate(
+        total=Sum('study_duration')
+    )['total'] or 0
+
     context = {
         'today_duration': today_duration,
         'today_tasks_count': today_tasks_count,
@@ -315,6 +324,7 @@ def statistics(request):
         'task_study_data': json.dumps(task_study_data[:10]),  # 前10个任务
         'total_study_duration': study_records.aggregate(total=Sum('study_duration'))['total'] or 0,
         'total_study_records': study_records.count(),
+        'untracked_duration': untracked_duration,
     }
 
     return render(request, 'study/statistics.html', context)

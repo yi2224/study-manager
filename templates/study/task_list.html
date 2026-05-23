@@ -61,13 +61,15 @@
                 {% endif %}
 
                 <!-- 完成进度 -->
-                <div class="mb-3">
+                <div class="mb-3" data-task-progress="{{ task.id }}">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <small><strong>完成进度</strong></small>
-                        <small class="text-muted">{{ task.progress|floatformat:0 }}%</small>
+                        <small class="text-muted progress-text" data-task-progress-text="{{ task.id }}">{{ task.progress|floatformat:0 }}%</small>
                     </div>
                     <div class="progress" style="height: 24px;">
-                        <div class="progress-bar" role="progressbar" style="width: {{ task.progress }}%;"
+                        <div class="progress-bar" role="progressbar"
+                            data-task-progress-bar="{{ task.id }}"
+                            style="width: {{ task.progress }}%;"
                             aria-valuenow="{{ task.progress }}" aria-valuemin="0" aria-valuemax="100">
                             {% if task.progress > 10 %}{{ task.progress|floatformat:0 }}%{% endif %}
                         </div>
@@ -97,25 +99,26 @@
                     </div>
 
                     {% if task.subtask_set.all %}
-                    <div class="subtask-list">
+                    <div class="subtask-list" data-task-subtasks="{{ task.id }}">
                         {% for subtask in task.subtask_set.all %}
                         <div class="subtask-item d-flex align-items-center mb-2 p-2 bg-light rounded"
                             id="subtask-{{ subtask.id }}">
                             <input type="checkbox" class="form-check-input subtask-checkbox"
                                 data-subtask-id="{{ subtask.id }}"
                                 {% if subtask.is_finish %}checked{% endif %}
-                                onchange="toggleSubtask({{ subtask.id }})">
+                                onchange="toggleSubtask({{ subtask.id }}, {{ task.id }})">
                             <span class="ms-2 flex-grow-1 {% if subtask.is_finish %}text-decoration-line-through text-muted{% endif %}">
                                 {{ subtask.sub_name }}
                             </span>
-                            <button class="btn btn-sm btn-outline-danger" onclick="deleteSubtask({{ subtask.id }})">
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteSubtask({{ subtask.id }}, {{ task.id }})">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </div>
                         {% endfor %}
                     </div>
                     {% else %}
-                    <p class="text-muted mb-0">还没有子任务</p>
+                    <p class="text-muted mb-0" id="no-subtasks-{{ task.id }}">还没有子任务</p>
+                    <div class="subtask-list" data-task-subtasks="{{ task.id }}" style="display:none;"></div>
                     {% endif %}
 
                     <!-- 添加子任务 -->
@@ -162,12 +165,34 @@
 </div>
 {% endif %}
 
-<!-- AJAX脚本 -->
+<!-- AJAX脚本
+============================================================
+进度计算逻辑说明：
+- 后端 MainTask.calculate_progress() 在每次子任务增/删/改时自动触发
+- 计算公式：progress = (已完成子任务数 / 总子任务数) × 100
+- 如果主任务没有子任务，进度为 0%
+- SubTask.save() 中自动调用 calculate_progress()，保证进度实时更新
+- 前端通过 AJAX 获取最新进度值后，直接更新 DOM，无需刷新页面
+============================================================
+-->
 <script>
-    // CSRF令牌
     const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 
-    // 添加子任务
+    // ---- 进度条 DOM 更新（不刷新页面） ----
+    function updateProgressBar(taskId, progress) {
+        const bar = document.querySelector(`[data-task-progress-bar="${taskId}"]`);
+        const text = document.querySelector(`[data-task-progress-text="${taskId}"]`);
+        if (bar) {
+            bar.style.width = progress + '%';
+            bar.setAttribute('aria-valuenow', progress);
+            bar.textContent = progress > 10 ? Math.round(progress) + '%' : '';
+        }
+        if (text) {
+            text.textContent = Math.round(progress) + '%';
+        }
+    }
+
+    // ---- 添加子任务 ----
     function addSubtask(taskId) {
         const input = document.getElementById(`subtask-input-${taskId}`);
         const subName = input.value.trim();
@@ -184,15 +209,39 @@
         fetch('{% url "study:subtask_create" %}', {
             method: 'POST',
             body: formData,
-            headers: {
-                'X-CSRFToken': getCookie('csrftoken')
-            }
+            headers: { 'X-CSRFToken': getCookie('csrftoken') }
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // 重新加载页面以刷新子任务列表
-                location.reload();
+                // 隐藏"还没有子任务"提示
+                const noSubtasks = document.getElementById(`no-subtasks-${taskId}`);
+                if (noSubtasks) noSubtasks.style.display = 'none';
+
+                // 显示子任务容器
+                const container = document.querySelector(`[data-task-subtasks="${taskId}"]`);
+                if (container) container.style.display = '';
+
+                // 在列表中追加新子任务
+                const item = document.createElement('div');
+                item.className = 'subtask-item d-flex align-items-center mb-2 p-2 bg-light rounded';
+                item.id = `subtask-${data.subtask_id}`;
+                item.innerHTML = `
+                    <input type="checkbox" class="form-check-input subtask-checkbox"
+                        data-subtask-id="${data.subtask_id}"
+                        onchange="toggleSubtask(${data.subtask_id}, ${taskId})">
+                    <span class="ms-2 flex-grow-1">${escapeHtml(data.sub_name)}</span>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteSubtask(${data.subtask_id}, ${taskId})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                `;
+                if (container) container.appendChild(item);
+
+                // 清空输入框
+                input.value = '';
+
+                // 更新进度（子任务自动触发 calculate_progress）
+                updateProgressBar(taskId, data.progress);
             } else {
                 alert('添加失败：' + data.error);
             }
@@ -200,46 +249,49 @@
         .catch(error => console.error('Error:', error));
     }
 
-    // 切换子任务完成状态
-    function toggleSubtask(subtaskId) {
+    // ---- 切换子任务完成状态 ----
+    function toggleSubtask(subtaskId, taskId) {
         const formData = new FormData();
         formData.append('subtask_id', subtaskId);
 
         fetch('{% url "study:subtask_toggle" %}', {
             method: 'POST',
             body: formData,
-            headers: {
-                'X-CSRFToken': getCookie('csrftoken')
-            }
+            headers: { 'X-CSRFToken': getCookie('csrftoken') }
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // 更新UI而不重新加载页面
+                // 更新子任务UI
                 const subtaskItem = document.getElementById(`subtask-${subtaskId}`);
-                const checkbox = subtaskItem.querySelector('.subtask-checkbox');
-                const label = subtaskItem.querySelector('span');
-
-                if (data.is_finish) {
-                    label.classList.add('text-decoration-line-through', 'text-muted');
-                } else {
-                    label.classList.remove('text-decoration-line-through', 'text-muted');
+                if (subtaskItem) {
+                    const label = subtaskItem.querySelector('span');
+                    if (data.is_finish) {
+                        label.classList.add('text-decoration-line-through', 'text-muted');
+                    } else {
+                        label.classList.remove('text-decoration-line-through', 'text-muted');
+                    }
                 }
 
-                // 更新进度条（如果在同一页面中）
-                location.reload();
+                // 内联更新进度条
+                updateProgressBar(taskId, data.progress);
             } else {
                 alert('更新失败：' + data.error);
+                // 出错时恢复 checkbox
+                const checkbox = document.querySelector(`[data-subtask-id="${subtaskId}"]`);
+                if (checkbox) checkbox.checked = !checkbox.checked;
             }
         })
-        .catch(error => console.error('Error:', error));
+        .catch(error => {
+            console.error('Error:', error);
+            const checkbox = document.querySelector(`[data-subtask-id="${subtaskId}"]`);
+            if (checkbox) checkbox.checked = !checkbox.checked;
+        });
     }
 
-    // 删除子任务
-    function deleteSubtask(subtaskId) {
-        if (!confirm('确定要删除此子任务吗？')) {
-            return;
-        }
+    // ---- 删除子任务 ----
+    function deleteSubtask(subtaskId, taskId) {
+        if (!confirm('确定要删除此子任务吗？')) return;
 
         const formData = new FormData();
         formData.append('subtask_id', subtaskId);
@@ -247,14 +299,28 @@
         fetch('{% url "study:subtask_delete" %}', {
             method: 'POST',
             body: formData,
-            headers: {
-                'X-CSRFToken': getCookie('csrftoken')
-            }
+            headers: { 'X-CSRFToken': getCookie('csrftoken') }
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                location.reload();
+                // 从DOM移除子任务
+                const item = document.getElementById(`subtask-${subtaskId}`);
+                if (item) item.remove();
+
+                // 内联更新进度条
+                updateProgressBar(taskId, data.progress);
+
+                // 如果子任务列表为空，显示提示
+                const container = document.querySelector(`[data-task-subtasks="${taskId}"]`);
+                if (container && container.children.length === 0) {
+                    const noSubtasks = document.getElementById(`no-subtasks-${taskId}`);
+                    if (noSubtasks) {
+                        noSubtasks.style.display = '';
+                    } else {
+                        container.style.display = 'none';
+                    }
+                }
             } else {
                 alert('删除失败：' + data.error);
             }
@@ -262,7 +328,13 @@
         .catch(error => console.error('Error:', error));
     }
 
-    // 获取CSRF Cookie
+    // ---- 工具函数 ----
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {

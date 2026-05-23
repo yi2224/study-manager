@@ -222,114 +222,105 @@
     </div>
 </div>
 
-<!-- 番茄钟逻辑脚本 -->
+<!-- 番茄钟逻辑脚本
+============================================================
+核心设计：
+- 使用 localStorage + 墙钟时间戳持久化计时器状态
+- 切换页面时计时不中断，回到页面时自动恢复
+- 番茄钟完成后自动保存学习记录到数据库
+- 支持两种模式：关联任务 / 自由学习（不选任务也可计时）
+============================================================
+-->
 <script>
-    // 计时器状态
-    let totalSeconds = 25 * 60;  // 25分钟
-    let remainingSeconds = totalSeconds;
-    let isRunning = false;
-    let isPomodoroMode = true;  // true为学习时间，false为休息时间
-    let timerInterval = null;
-    const POMODORO_DURATION = 25 * 60;  // 25分钟
-    const BREAK_DURATION = 5 * 60;  // 5分钟
+    const POMODORO_DURATION = 25 * 60;  // 25分钟学习
+    const BREAK_DURATION = 5 * 60;      // 5分钟休息
+    const STORAGE_KEY = 'pomodoro_state';
 
-    // 更新计时器显示
-    function updateDisplay() {
-        const minutes = Math.floor(remainingSeconds / 60);
-        const seconds = remainingSeconds % 60;
+    let timerInterval = null;
+    let currentPhaseCompleted = false;  // 防止同一阶段重复触发完成逻辑
+
+    // ---- localStorage 持久化 ----
+    function saveState(state) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function loadState() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        try { return JSON.parse(raw); } catch (e) { return null; }
+    }
+
+    function clearState() {
+        localStorage.removeItem(STORAGE_KEY);
+    }
+
+    // ---- 根据墙钟计算剩余秒数 ----
+    function computeRemaining(state) {
+        if (!state.isRunning) {
+            // 暂停中：剩余 = 总时长 - 已走过的时间
+            return Math.max(0, state.duration - state.elapsedBeforePause);
+        }
+        // 运行中：根据墙钟计算
+        const now = Date.now();
+        const elapsed = state.elapsedBeforePause + (now - state.startTime) / 1000;
+        return Math.max(0, state.duration - elapsed);
+    }
+
+    // 从 state 获取已完成的实际学习分钟数（用于保存记录）
+    function getCompletedMinutes(state) {
+        return Math.round(state.duration / 60);
+    }
+
+    // ---- UI 更新 ----
+    function updateDisplay(remaining) {
+        const sec = Math.ceil(remaining);
+        const minutes = Math.floor(sec / 60);
+        const seconds = sec % 60;
         document.getElementById('timerDisplay').textContent =
             `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     }
 
-    // 开始计时
-    function startTimer() {
-        if (isRunning) return;
-
-        isRunning = true;
-        document.getElementById('startBtn').disabled = true;
-        document.getElementById('pauseBtn').disabled = false;
-        document.querySelector('.pomodoro-container').classList.add('timer-active');
-
-        timerInterval = setInterval(() => {
-            remainingSeconds--;
-
-            if (remainingSeconds < 0) {
-                completePhase();
-                return;
-            }
-
-            updateDisplay();
-        }, 1000);
-    }
-
-    // 暂停计时
-    function pauseTimer() {
-        isRunning = false;
-        clearInterval(timerInterval);
-        document.getElementById('startBtn').disabled = false;
-        document.getElementById('pauseBtn').disabled = true;
-        document.querySelector('.pomodoro-container').classList.remove('timer-active');
-    }
-
-    // 重置计时
-    function resetTimer() {
-        pauseTimer();
-        isPomodoroMode = true;
-        remainingSeconds = POMODORO_DURATION;
-        totalSeconds = POMODORO_DURATION;
-        document.getElementById('modeLabel').textContent = '学习时间';
-        document.getElementById('modeLabel').style.color = '#667eea';
-        updateDisplay();
-    }
-
-    // 完成一个阶段
-    function completePhase() {
-        clearInterval(timerInterval);
-        isRunning = false;
-        document.getElementById('startBtn').disabled = false;
-        document.getElementById('pauseBtn').disabled = true;
-        document.querySelector('.pomodoro-container').classList.remove('timer-active');
-
-        if (isPomodoroMode) {
-            // 学习时间完成，显示完成弹窗
-            document.getElementById('completionMessage').textContent = '你已完成一个25分钟的学习时间！现在是休息时间。';
-            document.getElementById('completionModal').classList.add('active');
+    function updateModeUI(mode) {
+        const label = document.getElementById('modeLabel');
+        if (mode === 'study') {
+            label.textContent = '学习时间';
+            label.style.color = '#667eea';
         } else {
-            // 休息时间完成
-            alert('休息时间结束，准备好开始下一个番茄钟吗？');
-            resetTimer();
+            label.textContent = '休息时间';
+            label.style.color = '#28a745';
         }
     }
 
-    // 关闭完成弹窗，开始休息时间
-    function closeModal() {
-        document.getElementById('completionModal').classList.remove('active');
-        // 切换到休息时间
-        isPomodoroMode = false;
-        remainingSeconds = BREAK_DURATION;
-        totalSeconds = BREAK_DURATION;
-        document.getElementById('modeLabel').textContent = '休息时间';
-        document.getElementById('modeLabel').style.color = '#28a745';
-        updateDisplay();
-        startTimer();
+    function setButtonState(running) {
+        document.getElementById('startBtn').disabled = running;
+        document.getElementById('pauseBtn').disabled = !running;
+        const container = document.querySelector('.pomodoro-container');
+        if (running) {
+            container.classList.add('timer-active');
+        } else {
+            container.classList.remove('timer-active');
+        }
     }
 
-    // 保存学习记录并关闭
-    function saveAndClose() {
-        const taskId = document.getElementById('taskSelect').value;
+    function updatePageTitle(remaining) {
+        const sec = Math.ceil(remaining);
+        const m = String(Math.floor(sec / 60)).padStart(2, '0');
+        const s = String(sec % 60).padStart(2, '0');
+        document.title = `${m}:${s} - 番茄钟`;
+    }
 
-        if (!taskId) {
-            alert('请先选择一个学习任务');
-            return;
-        }
+    function restorePageTitle() {
+        document.title = '番茄钟 - 学习任务管理系统';
+    }
 
-        // 发送AJAX请求保存学习记录
+    // ---- 保存学习记录到后端 ----
+    function saveStudyRecord(taskId, durationMinutes) {
         const data = {
-            task_id: taskId,
-            study_duration: 25  // 番茄钟标准时长25分钟
+            task_id: taskId || null,
+            study_duration: durationMinutes
         };
 
-        fetch('{% url "study:pomodoro_finish" %}', {
+        return fetch('{% url "study:pomodoro_finish" %}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -337,30 +328,165 @@
             },
             body: JSON.stringify(data)
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('学习记录已保存！');
-                document.getElementById('completionModal').classList.remove('active');
-                // 切换到休息时间
-                isPomodoroMode = false;
-                remainingSeconds = BREAK_DURATION;
-                totalSeconds = BREAK_DURATION;
-                document.getElementById('modeLabel').textContent = '休息时间';
-                document.getElementById('modeLabel').style.color = '#28a745';
-                updateDisplay();
-                startTimer();
-            } else {
-                alert('保存失败：' + data.error);
+        .then(r => r.json())
+        .then(result => {
+            if (!result.success) {
+                console.error('保存学习记录失败:', result.error);
             }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('保存失败');
+            return result;
         });
     }
 
-    // 获取CSRF Cookie
+    // ---- 阶段完成处理 ----
+    function completePhase() {
+        if (currentPhaseCompleted) return;
+        currentPhaseCompleted = true;
+
+        clearInterval(timerInterval);
+        timerInterval = null;
+        const state = loadState();
+
+        if (!state) return;
+
+        if (state.mode === 'study') {
+            // 学习时间完成 → 自动保存记录
+            const taskId = state.taskId || '';
+            const durationMin = getCompletedMinutes(state);
+
+            saveStudyRecord(taskId, durationMin).then(() => {
+                // 保存成功后自动进入休息模式
+                clearState();
+                currentPhaseCompleted = false;
+                document.getElementById('completionMessage').textContent =
+                    '你已完成一个25分钟的学习时间！学习记录已自动保存。休息5分钟吧。';
+                document.getElementById('completionModal').classList.add('active');
+                setButtonState(false);
+                restorePageTitle();
+            });
+        } else {
+            // 休息时间完成
+            clearState();
+            currentPhaseCompleted = false;
+            alert('休息时间结束，准备好开始下一个番茄钟吗？');
+            resetTimerState();
+        }
+    }
+
+    // ---- 按钮操作 ----
+    function startTimer() {
+        const state = loadState();
+        if (state && state.isRunning) return;
+
+        const taskId = document.getElementById('taskSelect').value;
+        const mode = (state && !state.isRunning) ? state.mode : 'study';
+        const duration = (mode === 'study') ? POMODORO_DURATION : BREAK_DURATION;
+        const elapsedBefore = (state && !state.isRunning) ? state.elapsedBeforePause : 0;
+
+        const newState = {
+            startTime: Date.now(),
+            duration: duration,
+            elapsedBeforePause: elapsedBefore,
+            mode: mode,
+            taskId: taskId,
+            isRunning: true
+        };
+        saveState(newState);
+        currentPhaseCompleted = false;
+        setButtonState(true);
+        updateModeUI(mode);
+        startTicking();
+    }
+
+    function pauseTimer() {
+        const state = loadState();
+        if (!state || !state.isRunning) return;
+
+        clearInterval(timerInterval);
+        timerInterval = null;
+
+        const remaining = computeRemaining(state);
+        state.elapsedBeforePause = state.duration - remaining;
+        state.isRunning = false;
+        saveState(state);
+        setButtonState(false);
+        updateDisplay(remaining);
+        restorePageTitle();
+    }
+
+    function resetTimerState() {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        clearState();
+        currentPhaseCompleted = false;
+        setButtonState(false);
+        updateModeUI('study');
+        updateDisplay(POMODORO_DURATION);
+        restorePageTitle();
+    }
+
+    // 兼容旧函数名（HTML onclick 引用）
+    function resetTimer() { resetTimerState(); }
+
+    // ---- 计时循环 ----
+    function startTicking() {
+        if (timerInterval) clearInterval(timerInterval);
+
+        timerInterval = setInterval(() => {
+            const state = loadState();
+            if (!state) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                return;
+            }
+
+            if (!state.isRunning) {
+                // 被其他标签页暂停了
+                clearInterval(timerInterval);
+                timerInterval = null;
+                setButtonState(false);
+                updateDisplay(computeRemaining(state));
+                restorePageTitle();
+                return;
+            }
+
+            const remaining = computeRemaining(state);
+            updateDisplay(remaining);
+
+            if (state.mode === 'study') {
+                updatePageTitle(remaining);
+            }
+
+            if (remaining <= 0) {
+                completePhase();
+            }
+        }, 250);  // 250ms 刷新，保证跨标签页同步及时
+    }
+
+    // ---- 弹窗按钮 ----
+    function closeModal() {
+        document.getElementById('completionModal').classList.remove('active');
+        // 切换到休息模式继续
+        const newState = {
+            startTime: Date.now(),
+            duration: BREAK_DURATION,
+            elapsedBeforePause: 0,
+            mode: 'break',
+            taskId: '',
+            isRunning: true
+        };
+        saveState(newState);
+        currentPhaseCompleted = false;
+        setButtonState(true);
+        updateModeUI('break');
+        startTicking();
+    }
+
+    function saveAndClose() {
+        // 弹窗中的"保存记录"按钮 → 现在学习记录已自动保存，直接进入休息
+        closeModal();
+    }
+
+    // ---- CSRF ----
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -376,18 +502,56 @@
         return cookieValue;
     }
 
-    // 页面加载时初始化
-    document.addEventListener('DOMContentLoaded', function() {
-        updateDisplay();
-    });
-
-    // 浏览器标签页标题显示计时
+    // ---- 定时更新标题 ----
     setInterval(() => {
-        if (isRunning) {
-            const minutes = Math.floor(remainingSeconds / 60);
-            const seconds = remainingSeconds % 60;
-            document.title = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')} - 番茄钟`;
+        const state = loadState();
+        if (state && state.isRunning && state.mode === 'study') {
+            updatePageTitle(computeRemaining(state));
         }
     }, 1000);
+
+    // ---- 页面加载初始化 ----
+    document.addEventListener('DOMContentLoaded', function() {
+        const state = loadState();
+
+        if (!state) {
+            // 无持久化状态 → 显示默认 25:00
+            updateDisplay(POMODORO_DURATION);
+            updateModeUI('study');
+            setButtonState(false);
+            return;
+        }
+
+        // 恢复任务选择
+        if (state.taskId) {
+            document.getElementById('taskSelect').value = state.taskId;
+        }
+
+        // 恢复模式标签
+        updateModeUI(state.mode);
+
+        if (!state.isRunning) {
+            // 暂停状态 → 恢复显示剩余时间
+            const remaining = state.duration - state.elapsedBeforePause;
+            updateDisplay(Math.max(0, remaining));
+            setButtonState(false);
+            return;
+        }
+
+        // 运行中 → 计算经过的时间
+        const remaining = computeRemaining(state);
+
+        if (remaining <= 0) {
+            // 用户离开期间计时已结束 → 直接触发完成
+            setButtonState(false);
+            updateDisplay(0);
+            completePhase();
+        } else {
+            // 计时仍在进行 → 恢复计时
+            setButtonState(true);
+            updateDisplay(remaining);
+            startTicking();
+        }
+    });
 </script>
 {% endblock %}
